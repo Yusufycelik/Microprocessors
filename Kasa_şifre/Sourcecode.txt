@@ -1,0 +1,150 @@
+CODE    SEGMENT PARA 'CODE'
+        ASSUME CS:CODE, DS:DATA, SS:STAK
+	
+STAK    SEGMENT PARA STACK 'STACK'
+        DW 20 DUP(?)
+STAK    ENDS
+
+DATA    SEGMENT PARA 'DATA'
+Led    	DB 193, 199 ;Led için 193 değeri U harfine 199 değeri L harfine denk gelir
+Master_key	DB 1,8,8,1 
+Password	DB 00H, 00H, 00H, 00H
+TMP_PASSWORD	DB 00H, 00H, 00H, 00H
+Led_durum   	DB 00H	 ; 0=açık=U  1=kapalı=L
+Harf2	   	DW 0000H	 ;Şifre kontrolunde kullanılcak dizi
+Harf	   	DB 00H   ;Şifreyi oluştururken girilen tuş sayısı
+DATA    ENDS
+
+
+START PROC
+
+
+MOV AX, DATA
+MOV DS, AX
+
+MOV AL, 089H  ; 1000 1001 >AL 
+OUT 0AEH, AL  ; Control worde Al'yi atadık mod0 porta->output portb->output portc->input
+
+
+reset: ;her şeyi 0 lıyoruz 
+MOV Led_durum,00H ;led durum göstergesi
+XOR BX,BX
+MOV Harf,00H
+MOV Harf2,0000H
+MOV SI,0
+MOV AL, Led[SI];Led[0]=193
+OUT 0A8H, AL;Port a için 193 değeri bize ledlerde U harfini yakacaktır.
+
+main:
+MOV AX,Harf2
+CMP Harf2,4 ;eğer 4 tane tuşa basılmışsa şifreyi mi girmiş onu kontrol etmek için kontrole dallanır
+JE Kontrol
+
+MOV SI,1 
+MOV BX,0004H  ;SUTUN TARAMA DEGERI 
+Loop_dis: 
+   MOV AL,BL ; 1000 0000
+   not al ; 0111 1111
+   OUT 0AAH, AL ;PORT B OUTPUT
+    ;TUS OKU
+   
+   IN AL, 0ACH  ;PORT C INPUT ; 1111 1110
+   MOV CX,4
+   MOV DX, 0001H ;SATIR TARAMA DEGERI 
+   Loop_ic: 
+   not al ; 0000 0001
+      TEST AL,DL ; 
+      not al
+      JNZ tus_tespit ;JNZ
+        SHL DL,1 ;TUS YOKSA DIGER SATIRI TARA
+   LOOP Loop_ic
+  SHR BL,1 ;Sağdaki sütuna geçiş yaptırır
+   INC SI ;Sı indisi bizim keypadde location bulmamız için cx le birlikte bağıntı oluşturmamızı sağlıcak ileride.
+   CMP SI,4
+JB Loop_dis
+
+JMP main
+
+
+Tus_tespit:; Buraya geldikten sonra tuştan elimizi çekiyoruz.O anda cx ve sı değeri saklanıyorken tus location fonksiyonu yardımıyla keypadde tuşun locationunu bulup ax yazmacında saklıyıp bunu kullanıcının password adlı dizi de saklayacağız.
+IN AL, 0ACH 
+not al
+AND AL, 0FH ;maskeleme
+CMP AL, 00H
+JNE Tus_tespit 
+not al
+CALL Tus_location ;fonksiyon çağırısı
+;TUSUN DEGERI AX'TE TUTULUYOR
+;;;;;;
+CMP Led_durum,1
+JNZ Kasa_acik	;SISTEM KITLI ISE SIFTE KONTROLU YAPILIR
+CMP Harf2,4
+JB SIFRE_AL 
+
+Kontrol:
+;son 4 tusu  password VE M.keyla karsilastirma
+XOR DX,DX
+XOR BX,BX
+MOV CX,4
+Loop3:;şifreyi masterpassle mi kırıcaz yoksa gerçek şifreyle mi onu test ediyoruz
+   MOV AL,TMP_PASSWORD[BX]
+   CMP PASSWORD[BX],AL
+   JNZ J1
+   INC DL
+   J1: CMP Master_key[BX],AL
+   JNZ J2
+   INC DH
+   J2: INC BL
+LOOP Loop3
+CMP DL,4
+JE reset
+CMP DH,4
+JE reset
+MOV Harf2,0
+JMP main
+
+SIFRE_AL:
+MOV DI,Harf2
+MOV TMP_PASSWORD[DI],AL
+INC DI
+MOV Harf2,DI
+JMP main
+
+
+Kasa_acik:
+;BASILAN TUSU KAYDET
+MOV DL, Harf
+CMP Harf,4
+JB TUSU_KAYDET ;5. GIRILEN TUSA KADAR TUSLARI KAYDET
+CMP AX,12	;5. TUSUN # OLUP OLMASIGINI KONTROL ET
+JNZ reset
+;5. TUS # ISE KITLE
+MOV Led_durum,1
+MOV SI,1
+MOV AL, Led[SI]
+OUT 0A8H, AL
+JMP main
+
+TUSU_KAYDET:; ax deki tuşu password dizisine sırayla kaydediyoruz
+MOV BL,Harf
+MOV PASSWORD[BX],AL
+INC BL
+MOV Harf,BL
+JMP main
+
+RET
+START ENDP
+Tus_location PROC NEAR
+
+;(4-CX)* 3+Sı tuş tespiti
+MOV AX,4 
+SUB AX,CX  
+MOV BL,3
+MUL BL
+ADD AX,SI 
+RET
+Tus_location ENDP
+
+
+CODE    ENDS
+        END START
